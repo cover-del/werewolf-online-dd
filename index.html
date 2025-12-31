@@ -57,8 +57,7 @@
 </div>
 
 <script>
-const API_URL = 'https://script.google.com/macros/s/AKfycbwnw9a-nsze3TDD7xw9TvycPcckOvikK45nzqTH69R9MFwgFdar2G40xoi_XtLSES6S/exec'; // 需要自己部署的後端
-
+const API_URL = '<?= API_URL ?>'; // 從模板注入 Web App URL
 let state = {roomId:null, playerId:null, myVote:null};
 let myRole = null;
 
