@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <title>線上狼人殺（GitHub版）</title>
+  <style>
+    body{font-family:Arial,sans-serif;background:#f2f2f2;margin:0;padding:0;}
+    #container{width:90%;max-width:900px;margin:20px auto;background:#fff;padding:15px;border-radius:8px;box-shadow:0 0 8px rgba(0,0,0,0.2);}
+    #playerList img{width:40px;height:40px;border-radius:50%;margin-right:5px;vertical-align:middle;}
+    #playerList li{margin:5px 0;list-style:none;}
+    #chatBox{height:150px;overflow-y:auto;border:1px solid #ccc;padding:5px;margin-top:5px;background:#fafafa;}
+    #nightTargets button{margin:3px;padding:5px;}
+    .hidden{display:none;}
+  </style>
+</head>
+<body>
+<div id="container">
+  <h2>線上狼人殺</h2>
+
+  <div id="lobby">
+    <label>名稱：<input type="text" id="nameInput"></label>
+    <input type="file" id="avatarInput">
+    <button onclick="createRoom()">建立房間</button>
+    <label>房號：<input type="text" id="joinRoomId"></label>
+    <button onclick="joinRoom()">加入房間</button>
+    <h4>房間列表</h4>
+    <ul id="roomList"></ul>
+    <button onclick="refreshRoomList()">刷新房間列表</button>
+  </div>
+
+  <div id="game" class="hidden">
+    <h3>房間 <span id="roomId"></span> | 你: <span id="myRole">?</span></h3>
+    <ul id="playerList"></ul>
+    <div id="nightAction">
+      <h4>夜晚行動</h4>
+      <div id="nightActionInfo"></div>
+      <div id="nightTargets"></div>
+    </div>
+    <div id="voteDiv">
+      <h4>投票</h4>
+      <div id="voteTargets"></div>
+      <button onclick="submitMyVote()">投票</button>
+    </div>
+    <div id="chatDiv">
+      <h4>聊天室</h4>
+      <div id="chatBox"></div>
+      <div style="display:flex; gap:5px; margin-top:5px;">
+        <input type="text" id="chatInput" style="flex:1;">
+        <button onclick="sendChat()" style="white-space:nowrap;">送出</button>
+      </div>
+    </div>
+    <button id="assignBtn" onclick="assignRoles()">分配身分（房主）</button>
+    <button id="resolveNightBtn" onclick="resolveNight()">結束夜晚（房主）</button>
+    <button id="resolveVoteBtn" onclick="resolveVotes()">結束投票（房主）</button>
+    <button id="leaveBtn" onclick="leaveRoom()">離開房間</button>
+  </div>
+</div>
+
+<script>
+const API_URL = 'https://你的後端API'; // 需要自己部署的後端
+
+let state = {roomId:null, playerId:null, myVote:null};
+let myRole = null;
+
+// 取得登入資訊
+function getLoginInfo(){
+  return {
+    playId: localStorage.getItem('playId'),
+    name: localStorage.getItem('playerName') || document.getElementById('nameInput').value || '玩家'
+  };
+}
+
+// 將上傳圖片轉成 DataURL
+function fileToDataURL(file){
+  return new Promise((resolve, reject)=>{
+    if(!file){ resolve(''); return; }
+    const reader = new FileReader();
+    reader.onload = e => resolve(e.target.result);
+    reader.onerror = err => reject(err);
+    reader.readAsDataURL(file);
+  });
+}
+
+// 建立房間
+async function createRoom(){
+  const { playId, name } = getLoginInfo();
+  if(!playId){ alert('尚未登入'); return; }
+
+  const file = document.getElementById('avatarInput').files[0];
+  const avatarData = await fileToDataURL(file);
+
+  try {
+    // 上傳 avatar
+    let avatarUrl = '';
+    if(avatarData){
+      const uploadRes = await fetch(`${API_URL}/uploadAvatar`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({dataUrl:avatarData, filename:file.name})
+      });
+      const data = await uploadRes.json();
+      avatarUrl = data.url;
+    }
+
+    // 建立房間
+    const res = await fetch(`${API_URL}/createRoom`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name, avatarUrl, playId})
+    });
+    const roomData = await res.json();
+    if(roomData.error){ alert(roomData.error); return; }
+    enterGame(roomData.roomId, roomData.playerId);
+  } catch(e){
+    console.error(e);
+    alert('建立房間失敗');
+  }
+}
+
+// 加入房間
+async function joinRoom(){
+  const { playId, name } = getLoginInfo();
+  if(!playId){ alert('尚未登入'); return; }
+  const roomId = document.getElementById('joinRoomId').value.trim().toUpperCase();
+  if(!roomId){ alert('請輸入房號'); return; }
+
+  const file = document.getElementById('avatarInput').files[0];
+  const avatarData = await fileToDataURL(file);
+
+  try {
+    let avatarUrl = '';
+    if(avatarData){
+      const uploadRes = await fetch(`${API_URL}/uploadAvatar`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({dataUrl:avatarData, filename:file.name})
+      });
+      const data = await uploadRes.json();
+      avatarUrl = data.url;
+    }
+
+    const res = await fetch(`${API_URL}/joinRoom`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({roomId, name, avatarUrl, playId})
+    });
+    const roomData = await res.json();
+    if(roomData.error){ alert(roomData.error); return; }
+    enterGame(roomId, roomData.playerId);
+  } catch(e){
+    console.error(e);
+    alert('加入房間失敗');
+  }
+}
+
+// 進入遊戲
+function enterGame(roomId, playerId){
+  state.roomId = roomId;
+  state.playerId = playerId;
+
+  document.getElementById('lobby').classList.add('hidden');
+  document.getElementById('game').classList.remove('hidden');
+  document.getElementById('roomId').innerText = roomId;
+
+  pollRoom();
+  clearInterval(window.pollTimer);
+  window.pollTimer = setInterval(pollRoom, 1500);
+}
+</script>
+<script>
+// 輪詢房間狀態
+async function pollRoom(){
+  if(!state.roomId || !state.playerId) return;
+  try {
+    const res = await fetch(`${API_URL}/getRoomState?roomId=${state.roomId}&playerId=${state.playerId}`);
+    const data = await res.json();
+    if(data.error) return;
+
+    const players = data.players || {};
+    state.phase = data.phase;
+    myRole = players[state.playerId]?.role || '?';
+    document.getElementById('myRole').innerText = myRole;
+
+    // 玩家列表
+    const ul = document.getElementById('playerList');
+    ul.innerHTML = '';
+    Object.values(players).forEach(p => {
+      const li = document.createElement('li');
+      li.style.display = "flex";
+      li.style.alignItems = "center";
+      li.style.margin = "8px 0";
+
+      const img = document.createElement('img');
+      img.src = p.avatar || 'https://via.placeholder.com/40';
+      img.style.width = "40px";
+      img.style.height = "40px";
+      img.style.borderRadius = "50%";
+      img.style.marginRight = "10px";
+
+      const textBox = document.createElement('div');
+      textBox.style.display = "flex";
+      textBox.style.flexDirection = "column";
+
+      const nameDiv = document.createElement('div');
+      nameDiv.textContent = p.name;
+
+      const statusDiv = document.createElement('div');
+      statusDiv.textContent = (p.alive ? '🟢 存活' : '⚫ 死亡') + (p.role ? ` (${p.role})` : '');
+      statusDiv.style.fontSize = "13px";
+      statusDiv.style.color = p.alive ? "#0a0" : "#888";
+
+      textBox.appendChild(nameDiv);
+      textBox.appendChild(statusDiv);
+      li.appendChild(img);
+      li.appendChild(textBox);
+      ul.appendChild(li);
+    });
+
+    // 聊天室
+    const chatBox = document.getElementById('chatBox');
+    chatBox.innerHTML = '';
+    (data.chat || []).forEach(c => {
+      const div = document.createElement('div');
+      div.textContent = (c.system ? '[系統]' : c.name ? c.name + ': ' : '') + c.text;
+      chatBox.appendChild(div);
+    });
+    chatBox.scrollTop = chatBox.scrollHeight;
+
+    // ===== 夜晚操作 =====
+    const nightDiv = document.getElementById('nightTargets');
+    const nightInfo = document.getElementById('nightActionInfo');
+    nightDiv.innerHTML = '';
+    nightInfo.textContent = '';
+
+    if((data.phase === 'rolesAssigned' || data.phase === 'night') && players[state.playerId]?.alive){
+      let actionDone = false;
+      const alivePlayers = Object.values(players).filter(p => p.alive && p.id !== state.playerId);
+
+      const nightActions = {
+        werewolf: 'kill',
+        seer: 'check',
+        doctor: 'save'
+      };
+
+      const actionType = nightActions[myRole];
+      if(actionType){
+        nightInfo.textContent = myRole === 'werewolf' ? '狼人：選擇攻擊目標'
+          : myRole === 'seer' ? '預言家：選擇查驗目標'
+          : '醫生：選擇守護目標';
+
+        alivePlayers.forEach(p => {
+          const btn = document.createElement('button');
+          btn.textContent = p.name;
+          btn.onclick = async () => {
+            await fetch(`${API_URL}/submitNightAction`,{
+              method:'POST',
+              headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({
+                roomId: state.roomId,
+                playerId: state.playerId,
+                action: {type: actionType, targetId: p.id}
+              })
+            });
+            nightInfo.textContent = '已選擇目標：' + p.name;
+            actionDone = true;
+          };
+          nightDiv.appendChild(btn);
+        });
+      } else {
+        nightInfo.textContent = '平民：無夜晚行動';
+        actionDone = true;
+      }
+    }
+
+    // ===== 投票按鈕 =====
+    const voteDiv = document.getElementById('voteTargets');
+    voteDiv.innerHTML = '';
+    if(data.phase === 'day'){
+      Object.values(players).filter(p => p.alive && p.id !== state.playerId).forEach(p => {
+        const btn = document.createElement('button');
+        btn.textContent = p.name;
+        btn.onclick = () => {
+          state.myVote = p.id;
+          alert('已選擇投票對象：' + p.name);
+        };
+        voteDiv.appendChild(btn);
+      });
+    }
+
+  } catch(e){
+    console.error(e);
+  }
+}
+
+// 投票
+async function submitMyVote(){
+  if(!state.myVote){ alert('請選擇投票目標'); return; }
+  try {
+    await fetch(`${API_URL}/submitVote`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        roomId: state.roomId,
+        playerId: state.playerId,
+        targetId: state.myVote
+      })
+    });
+    alert('投票送出');
+  } catch(e){
+    console.error(e);
+    alert('投票失敗');
+  }
+}
+
+// 分配身分（房主）
+async function assignRoles(){
+  try {
+    await fetch(`${API_URL}/assignRoles`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({roomId: state.roomId, playerId: state.playerId})
+    });
+  } catch(e){ console.error(e); }
+}
+
+// 結束夜晚（房主）
+async function resolveNight(){
+  try {
+    await fetch(`${API_URL}/resolveNight`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({roomId: state.roomId, playerId: state.playerId})
+    });
+  } catch(e){ console.error(e); }
+}
+
+// 結束投票（房主）
+async function resolveVotes(){
+  try {
+    await fetch(`${API_URL}/resolveVotes`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({roomId: state.roomId, playerId: state.playerId})
+    });
+  } catch(e){ console.error(e); }
+}
+
+// 聊天室
+async function sendChat(){
+  const txt = document.getElementById('chatInput').value.trim();
+  if(!txt) return;
+  try {
+    await fetch(`${API_URL}/postChat`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({roomId: state.roomId, playerId: state.playerId, text: txt})
+    });
+    document.getElementById('chatInput').value = '';
+  } catch(e){ console.error(e); }
+}
+</script>
+<script>
+// 離開房間
+async function leaveRoom() {
+  if(!state.roomId || !state.playerId) return;
+  try {
+    await fetch(`${API_URL}/leaveRoom`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({roomId: state.roomId, playerId: state.playerId})
+    });
+    alert("你已離開房間");
+
+    // 清掉前端資料
+    state.roomId = null;
+    state.playerId = null;
+    state.myVote = null;
+    myRole = null;
+
+    // 切換畫面
+    document.getElementById('game').classList.add('hidden');
+    document.getElementById('lobby').classList.remove('hidden');
+
+    // 清空聊天室、玩家列表
+    document.getElementById('chatBox').innerHTML = '';
+    document.getElementById('playerList').innerHTML = '';
+    document.getElementById('myRole').innerText = '?';
+  } catch(e){
+    console.error(e);
+    alert("離開房間失敗：" + e);
+  }
+}
+
+// 取得房間列表
+async function refreshRoomList() {
+  try {
+    const res = await fetch(`${API_URL}/listRooms`);
+    const rooms = await res.json();
+    const ul = document.getElementById('roomList');
+    ul.innerHTML = '';
+    if(!rooms || rooms.length===0){
+      ul.innerHTML = '<li>目前沒有房間</li>';
+      return;
+    }
+    rooms.forEach(r => {
+      const li = document.createElement('li');
+      li.style.display = 'flex';
+      li.style.justifyContent = 'space-between';
+      li.style.alignItems = 'center';
+      li.textContent = `房號: ${r.id} | 房主: ${r.hostName} | 玩家: ${r.playerCount}`;
+
+      const btn = document.createElement('button');
+      btn.textContent = '加入';
+      btn.onclick = ()=>joinRoomByList(r.id);
+      li.appendChild(btn);
+      ul.appendChild(li);
+    });
+  } catch(e){
+    console.error(e);
+  }
+}
+
+// 點擊房間列表加入
+function joinRoomByList(roomId){
+  document.getElementById('joinRoomId').value = roomId;
+  joinRoom();
+}
+
+// 初始化時自動刷新房間列表
+refreshRoomList();
+setInterval(refreshRoomList, 5000);
+
+// 輪詢房間狀態定時器
+setInterval(pollRoom, 1500);
+</script>
