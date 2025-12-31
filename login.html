@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>狼人殺登入</title>
+  <style>
+    body { font-family: Arial; background:#f2f2f2; display:flex; justify-content:center; align-items:center; height:100vh; margin:0; }
+    #login-box { background:white; padding:30px; border-radius:10px; box-shadow:0 0 10px rgba(0,0,0,0.2); width:300px; }
+    input { width:100%; padding:10px; margin:10px 0; border-radius:5px; border:1px solid #ccc; }
+    button { width:100%; padding:10px; border:none; border-radius:5px; background:#4CAF50; color:white; font-size:16px; cursor:pointer; }
+    button:hover { background:#45a049; }
+    #message { color:red; margin-top:10px; text-align:center; }
+  </style>
+</head>
+<body>
+  <div id="login-box">
+    <h2>登入 / 註冊</h2>
+    <input type="text" id="nameInput" placeholder="玩家名稱" />
+    <input type="password" id="passwordInput" placeholder="密碼" />
+    <button onclick="login()">登入</button>
+    <button onclick="register()">註冊</button>
+    <div id="message"></div>
+  </div>
+
+  <script>
+    const API_URL = 'https://你的API端點'; // 例如你自己部署的 Google Apps Script Web App URL 或 Node.js API
+
+    async function login() {
+      const name = document.getElementById('nameInput').value.trim();
+      const password = document.getElementById('passwordInput').value.trim();
+      if(!name || !password){ showMessage('請輸入名稱與密碼'); return; }
+
+      try {
+        const res = await fetch(`${API_URL}?action=login&name=${encodeURIComponent(name)}&password=${encodeURIComponent(password)}`);
+        const data = await res.json();
+        if(data.error) showMessage(data.error);
+        else {
+          localStorage.setItem('player', JSON.stringify(data));
+          window.location.href = 'index.html'; // 登入成功後跳轉遊戲頁
+        }
+      } catch(e) {
+        showMessage('伺服器錯誤');
+        console.error(e);
+      }
+    }
+
+    async function register() {
+      const name = document.getElementById('nameInput').value.trim();
+      const password = document.getElementById('passwordInput').value.trim();
+      if(!name || !password){ showMessage('請輸入名稱與密碼'); return; }
+
+      try {
+        const res = await fetch(`${API_URL}?action=register&name=${encodeURIComponent(name)}&password=${encodeURIComponent(password)}`);
+        const data = await res.json();
+        if(data.error) showMessage(data.error);
+        else {
+          localStorage.setItem('player', JSON.stringify(data));
+          window.location.href = 'index.html';
+        }
+      } catch(e) {
+        showMessage('伺服器錯誤');
+        console.error(e);
+      }
+    }
+
+    function showMessage(msg){
+      document.getElementById('message').innerText = msg;
+    }
+  </script>
+</body>
+</html>
