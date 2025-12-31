@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>狼人殺 Admin 管理</title>
+  <style>
+    body{font-family:Arial,sans-serif;padding:20px;background:#f2f2f2;}
+    #adminPanel{display:none;}
+  </style>
+</head>
+<body>
+<h2>Admin 管理頁面</h2>
+
+<div id="loginDiv">
+  <label>密碼: <input type="password" id="adminPwd"></label>
+  <button onclick="loginAdmin()">登入</button>
+</div>
+
+<div id="adminPanel">
+  <h3>房間管理</h3>
+  <button onclick="refreshRooms()">刷新房間列表</button>
+  <ul id="roomList"></ul>
+  <button onclick="deleteAllRooms()">刪除所有房間</button>
+</div>
+
+<script>
+const ADMIN_PASSWORD = '1234'; // 可修改
+const API_URL = 'https://your-backend-url.com'; // 改成你的 REST API 後端
+
+// 登入
+function loginAdmin() {
+  const pwd = document.getElementById('adminPwd').value;
+  if(pwd === ADMIN_PASSWORD){
+    document.getElementById('loginDiv').style.display='none';
+    document.getElementById('adminPanel').style.display='block';
+    refreshRooms();
+  } else {
+    alert('密碼錯誤');
+  }
+}
+
+// 刷新房間列表
+async function refreshRooms() {
+  try {
+    const res = await fetch(`${API_URL}/listRooms`);
+    const rooms = await res.json();
+    const ul = document.getElementById('roomList');
+    ul.innerHTML='';
+    if(!rooms || rooms.length===0){
+      ul.innerHTML = '<li>目前沒有房間</li>';
+      return;
+    }
+    rooms.forEach(r=>{
+      const li = document.createElement('li');
+      li.style.display = 'flex';
+      li.style.justifyContent = 'space-between';
+      li.style.alignItems = 'center';
+
+      li.innerHTML = `房號: ${r.id} | 房主: ${r.hostName} | 玩家: ${r.playerCount} | 最後活動: ${r.lastActive}`;
+      if(r.inactive){
+        li.innerHTML += ' ⚠️ 超過 60 分鐘無活動';
+        li.style.color = 'red';
+      }
+
+      const btn = document.createElement('button');
+      btn.textContent = '刪除';
+      btn.onclick = ()=>deleteRoom(r.id);
+      li.appendChild(btn);
+
+      ul.appendChild(li);
+    });
+  } catch(e){
+    console.error(e);
+  }
+}
+
+// 刪除單個房間
+async function deleteRoom(roomId){
+  try {
+    const res = await fetch(`${API_URL}/adminDeleteRoom`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({roomId})
+    });
+    const data = await res.json();
+    alert(data.message || '已刪除房間');
+    refreshRooms();
+  } catch(e){
+    console.error(e);
+  }
+}
+
+// 刪除全部房間
+async function deleteAllRooms(){
+  try {
+    const res = await fetch(`${API_URL}/adminDeleteAllRooms`, {
+      method:'POST'
+    });
+    const data = await res.json();
+    alert(data.message || '已刪除所有房間');
+    refreshRooms();
+  } catch(e){
+    console.error(e);
+  }
+}
+
+// 初始化刷新 & 自動刷新
+refreshRooms();
+setInterval(refreshRooms, 5000);
+
+</script>
+</body>
+</html>
